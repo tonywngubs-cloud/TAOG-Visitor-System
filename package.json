@@ -6,7 +6,8 @@
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
-    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "server": "node server/server.js",
+    "dev": "concurrently -k \"node server/server.js\" \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 tcp:127.0.0.1:5000 && electron .\"",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"
