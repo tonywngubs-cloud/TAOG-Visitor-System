@@ -10,8 +10,6 @@ const navigation = [
 { label: 'Settings', icon: '⚙' },
 ]
 
-const API_BASE = 'http://127.0.0.1:5000'
-
 const initialVisitorForm = {
 name: '',
 phone: '',
@@ -80,7 +78,26 @@ const [visitors, setVisitors] = useState([])
 const [followUps, setFollowUps] = useState([])
 const [reportRange, setReportRange] = useState('This month')
 const [settings, setSettings] = useState(initialSettings)
-const [isLoading, setIsLoading] = useState(true)
+const [authLoading, setAuthLoading] = useState(true)
+const [authError, setAuthError] = useState('')
+const [setupRequired, setSetupRequired] = useState(false)
+const [setupAvailable, setSetupAvailable] = useState(true)
+const [setupTokenRequired, setSetupTokenRequired] = useState(false)
+const [authMode, setAuthMode] = useState('login')
+const [dataError, setDataError] = useState('')
+const [loginEmail, setLoginEmail] = useState('')
+const [loginPassword, setLoginPassword] = useState('')
+const [loginError, setLoginError] = useState('')
+const [setupToken, setSetupToken] = useState('')
+const [authConfirmPassword, setAuthConfirmPassword] = useState('')
+const [staffEmail, setStaffEmail] = useState('')
+const [staffPassword, setStaffPassword] = useState('')
+const [staffConfirmPassword, setStaffConfirmPassword] = useState('')
+const [staffError, setStaffError] = useState('')
+const [staffSuccess, setStaffSuccess] = useState('')
+const [staffSaving, setStaffSaving] = useState(false)
+const [formError, setFormError] = useState('')
+const [user, setUser] = useState(null)
 
 const weeklyData = buildWeeklyData(visitors)
 const totalVisitors = visitors.length
@@ -108,16 +125,19 @@ setFormSaved(false)
 
 const handleFormSubmit = async (event) => {
 event.preventDefault()
+setFormError('')
 
 try {
-  const response = await fetch(`${API_BASE}/api/visitors`, {
+  const response = await fetch('/api/visitors', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(visitorForm),
   })
 
   if (!response.ok) {
-    throw new Error('Visitor registration failed')
+    const error = await response.json()
+    if (response.status === 401) setUser(null)
+    throw new Error(error.error || 'Visitor registration failed')
   }
 
   const data = await response.json()
@@ -125,13 +145,14 @@ try {
   setVisitorForm(initialVisitorForm)
   setFormSaved(true)
 
-  const followUpResponse = await fetch(`${API_BASE}/api/followups`)
+  const followUpResponse = await fetch('/api/followups')
   if (followUpResponse.ok) {
     const followUpData = await followUpResponse.json()
     setFollowUps(followUpData.followUps || [])
   }
 } catch (error) {
   console.error(error)
+  setFormError(error.message)
   setFormSaved(false)
 }
 }
@@ -139,10 +160,14 @@ try {
 const fetchVisitorsAndTasks = async () => {
 try {
   const [visitorsResponse, followUpsResponse] = await Promise.all([
-    fetch(`${API_BASE}/api/visitors`),
-    fetch(`${API_BASE}/api/followups`),
+    fetch('/api/visitors'),
+    fetch('/api/followups'),
   ])
 
+  if (visitorsResponse.status === 401 || followUpsResponse.status === 401) {
+    setUser(null)
+    return
+  }
   if (!visitorsResponse.ok || !followUpsResponse.ok) {
     throw new Error('Failed to load data from the server')
   }
@@ -152,18 +177,138 @@ try {
 
   setVisitors((visitorsData.visitors || []).map(normalizeVisitor))
   setFollowUps(followUpsData.followUps || [])
+  setDataError('')
 } catch (error) {
   console.error(error)
   setVisitors([])
   setFollowUps([])
-} finally {
-  setIsLoading(false)
+  setDataError('Unable to load visitor data. Refresh the page to try again.')
 }
 }
 
 useEffect(() => {
-  fetchVisitorsAndTasks()
+  const loadSession = async () => {
+    try {
+      const [sessionResponse, setupResponse] = await Promise.all([
+        fetch('/api/auth/session'),
+        fetch('/api/auth/setup-status'),
+      ])
+      if (!sessionResponse.ok || !setupResponse.ok) throw new Error('Unable to check your sign-in status.')
+      const [sessionData, setupData] = await Promise.all([sessionResponse.json(), setupResponse.json()])
+      setUser(sessionData.user)
+      setSetupRequired(setupData.setupRequired)
+      setSetupAvailable(setupData.setupAvailable)
+      setSetupTokenRequired(setupData.setupTokenRequired)
+      if (!sessionData.user && setupData.setupRequired) setAuthMode('setup')
+      if (sessionData.user) await fetchVisitorsAndTasks()
+    } catch (error) {
+      console.error(error)
+      setAuthError('Unable to connect to the server. Please refresh and try again.')
+    } finally {
+      setAuthLoading(false)
+    }
+  }
+
+  loadSession()
 }, [])
+
+const handleInitialSetup = async (event) => {
+  event.preventDefault()
+  setLoginError('')
+  if (loginPassword !== authConfirmPassword) {
+    setLoginError('Passwords do not match.')
+    return
+  }
+
+  try {
+    const response = await fetch('/api/auth/setup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: loginEmail,
+        password: loginPassword,
+        setupToken,
+      }),
+    })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Unable to create the administrator account.')
+    setUser(data.user)
+    setLoginPassword('')
+    setAuthConfirmPassword('')
+    setSetupToken('')
+    setSetupRequired(false)
+    await fetchVisitorsAndTasks()
+  } catch (error) {
+    console.error(error)
+    setLoginError(error.message)
+  }
+}
+
+const handleLogin = async (event) => {
+  event.preventDefault()
+  setLoginError('')
+  try {
+    const response = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: loginEmail, password: loginPassword }),
+    })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Unable to sign in.')
+    setUser(data.user)
+    setLoginPassword('')
+    setAuthError('')
+    setSetupRequired(false)
+    await fetchVisitorsAndTasks()
+  } catch (error) {
+    console.error(error)
+    setLoginError(error.message)
+  }
+}
+
+const handleCreateStaff = async (event) => {
+  event.preventDefault()
+  setStaffError('')
+  setStaffSuccess('')
+  if (staffPassword !== staffConfirmPassword) {
+    setStaffError('Passwords do not match.')
+    return
+  }
+
+  setStaffSaving(true)
+  try {
+    const response = await fetch('/api/auth/staff', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: staffEmail, password: staffPassword }),
+    })
+    const data = await response.json()
+    if (response.status === 401) setUser(null)
+    if (!response.ok) throw new Error(data.error || 'Unable to create staff account.')
+    setStaffEmail('')
+    setStaffPassword('')
+    setStaffConfirmPassword('')
+    setStaffSuccess(`Staff account created for ${data.staff.email}.`)
+  } catch (error) {
+    console.error(error)
+    setStaffError(error.message)
+  } finally {
+    setStaffSaving(false)
+  }
+}
+
+const handleLogout = async () => {
+  try {
+    const response = await fetch('/api/auth/logout', { method: 'POST' })
+    if (!response.ok) throw new Error('Unable to sign out.')
+    setUser(null)
+    setVisitors([])
+    setFollowUps([])
+  } catch (error) {
+    console.error(error)
+    setAuthError('Unable to sign out. Please try again.')
+  }
+}
 
 const filteredDirectory = visitors.filter((entry) => {
 const matchesSearch = `${entry.name} ${entry.phone}`.toLowerCase().includes(directoryQuery.toLowerCase())
@@ -173,11 +318,12 @@ return matchesSearch && matchesType
 
 const toggleFollowUpStatus = async (id) => {
 try {
-  const response = await fetch(`${API_BASE}/api/followups/${id}`, {
+  const response = await fetch(`/api/followups/${id}`, {
     method: 'PATCH',
   })
 
   if (!response.ok) {
+    if (response.status === 401) setUser(null)
     throw new Error('Unable to update follow-up status')
   }
 
@@ -208,6 +354,91 @@ const reportRows = [
 { label: 'Community outreach', visitors: Math.max(0, Math.round((visitors.length || 0) * 0.12)), first: Math.max(0, Math.round((firstTimeVisitors || 0) * 0.15)), returning: Math.max(0, Math.round((returningVisitors || 0) * 0.12)), conversion: `${Math.min(90, Math.max(18, Math.round(((returningVisitors || 0) / Math.max(1, visitors.length)) * 60)))}%` },
 ]
 
+if (authLoading) {
+  return <div className="auth-screen"><p>Checking staff sign-in…</p></div>
+}
+
+if (!user) {
+  const isSetup = setupRequired || authMode === 'setup'
+  return (
+    <main className="auth-screen">
+      <form className="auth-card" onSubmit={isSetup ? handleInitialSetup : handleLogin}>
+        <div className="brand-mark auth-brand">T</div>
+        <div className="eyebrow">TAOG VISITOR SYSTEM</div>
+        <h1>{isSetup ? 'Set up administrator' : 'Staff sign in'}</h1>
+        <p>{isSetup
+          ? 'Create the first administrator account. You can add staff from Settings after signing in.'
+          : 'Sign in with your church staff account to manage visitor records.'}</p>
+        {authError && <div className="auth-error" role="alert">{authError}</div>}
+        {loginError && <div className="auth-error" role="alert">{loginError}</div>}
+        {isSetup && !setupAvailable && (
+          <div className="auth-error" role="alert">
+            Initial setup is not configured. Ask your system administrator to set INITIAL_SETUP_TOKEN.
+          </div>
+        )}
+        {isSetup && setupTokenRequired && setupAvailable && (
+          <label className="field">
+            <span>Initial setup token</span>
+            <input
+              autoComplete="off"
+              type="password"
+              value={setupToken}
+              onChange={(event) => setSetupToken(event.target.value)}
+              required
+            />
+          </label>
+        )}
+        <label className="field">
+          <span>Email address</span>
+          <input
+            autoComplete={isSetup ? 'email' : 'username'}
+            type="email"
+            value={loginEmail}
+            onChange={(event) => setLoginEmail(event.target.value)}
+            required
+          />
+        </label>
+        <label className="field">
+          <span>Password</span>
+          <input
+            autoComplete="current-password"
+            type="password"
+            value={loginPassword}
+            onChange={(event) => setLoginPassword(event.target.value)}
+            minLength={isSetup ? 12 : undefined}
+            required
+          />
+        </label>
+        {isSetup && setupAvailable && (
+          <label className="field">
+            <span>Confirm password</span>
+            <input
+              autoComplete="new-password"
+              type="password"
+              value={authConfirmPassword}
+              onChange={(event) => setAuthConfirmPassword(event.target.value)}
+              minLength={12}
+              required
+            />
+          </label>
+        )}
+        <button className="primary-button auth-submit" type="submit" disabled={isSetup && !setupAvailable}>
+          {isSetup ? 'Create administrator account' : 'Sign in'}
+        </button>
+        {isSetup ? (
+          <p className="auth-switch">First staff account setup is available only once.</p>
+        ) : setupRequired ? (
+          <button className="text-button auth-mode-button" type="button" onClick={() => { setAuthMode('setup'); setLoginError('') }}>
+            Create the first administrator account
+          </button>
+        ) : (
+          <p className="auth-switch">Staff accounts are created by your administrator.</p>
+        )}
+      </form>
+    </main>
+  )
+}
+
 return ( <div className="app-shell"> <aside className="sidebar"> <div className="brand"> <div className="brand-mark">T</div> <div className="brand-copy"> <strong>TAOG</strong> <span>VISITOR SYSTEM</span> </div> </div>
 
 ```
@@ -236,10 +467,10 @@ return ( <div className="app-shell"> <aside className="sidebar"> <div className=
       <div className="profile">
         <div className="profile-avatar">TA</div>
         <div className="profile-copy">
-          <strong>Church Admin</strong>
-          <span>Administrator</span>
+          <strong>{user.email}</strong>
+          <span>{user.role === 'admin' ? 'Administrator' : 'Staff'}</span>
         </div>
-        <span className="profile-menu">···</span>
+        <span className="profile-menu">●</span>
       </div>
     </div>
   </aside>
@@ -253,11 +484,13 @@ return ( <div className="app-shell"> <aside className="sidebar"> <div className=
       </div>
       <div className="topbar-right">
         <span className="today-label">TAOG Community</span>
-        <div className="topbar-avatar">TA</div>
+        <button className="secondary-button sign-out-button" type="button" onClick={handleLogout}>Sign out</button>
       </div>
     </header>
 
     <div className="page-content">
+      {authError && <div className="auth-error" role="alert">{authError}</div>}
+      {dataError && <div className="auth-error" role="alert">{dataError}</div>}
       <section className="welcome-row">
         <div>
           <div className="eyebrow">YOUR COMMUNITY, CONNECTED</div>
@@ -594,6 +827,7 @@ return ( <div className="app-shell"> <aside className="sidebar"> <div className=
                   Visitor registered successfully. A follow-up task has been prepared for the team.
                 </div>
               )}
+              {formError && <div className="auth-error" role="alert">{formError}</div>}
             </form>
           </div>
 
@@ -832,6 +1066,55 @@ return ( <div className="app-shell"> <aside className="sidebar"> <div className=
               </div>
 
               <div className="settings-list">
+                {user.role === 'admin' && (
+                  <section className="staff-registration">
+                    <div className="panel-heading">
+                      <div>
+                        <h2>Register staff</h2>
+                        <p>Create a staff sign-in. The password is securely hashed and stored on the server.</p>
+                      </div>
+                    </div>
+                    <form className="staff-registration-form" onSubmit={handleCreateStaff}>
+                      <label className="field">
+                        <span>Staff email</span>
+                        <input
+                          autoComplete="email"
+                          type="email"
+                          value={staffEmail}
+                          onChange={(event) => setStaffEmail(event.target.value)}
+                          required
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Temporary password</span>
+                        <input
+                          autoComplete="new-password"
+                          type="password"
+                          value={staffPassword}
+                          onChange={(event) => setStaffPassword(event.target.value)}
+                          minLength={12}
+                          required
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Confirm password</span>
+                        <input
+                          autoComplete="new-password"
+                          type="password"
+                          value={staffConfirmPassword}
+                          onChange={(event) => setStaffConfirmPassword(event.target.value)}
+                          minLength={12}
+                          required
+                        />
+                      </label>
+                      {staffError && <div className="auth-error" role="alert">{staffError}</div>}
+                      {staffSuccess && <div className="success-banner" role="status">{staffSuccess}</div>}
+                      <button className="primary-button" type="submit" disabled={staffSaving}>
+                        {staffSaving ? 'Creating account…' : 'Create staff account'}
+                      </button>
+                    </form>
+                  </section>
+                )}
                 <div className="setting-row">
                   <div>
                     <strong>Welcome email automation</strong>

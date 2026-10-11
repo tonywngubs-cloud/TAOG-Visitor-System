@@ -1,16 +1,50 @@
-# React + Vite
+# TAOG Visitor System
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Browser-based visitor management app built with React, Vite, Express, and Neon Postgres. Vercel serves the frontend and API; Neon provides durable hosted data storage.
 
-Currently, two official plugins are available:
+## Deploy the complete app to Vercel
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+1. Push this project to a Git provider and import that repository in [Vercel](https://vercel.com/new). The Vercel project root should be the repository root. The included `vercel.json` builds the Vite frontend to `dist`, routes `/api` to the Express Vercel Function, and sends browser page routes to the SPA.
+2. In the Vercel project, add the **Neon** integration from the Vercel Marketplace and connect a Neon Postgres database. Make sure the project has a `DATABASE_URL` environment variable for Production and Preview deployments.
+3. Add `SESSION_SECRET` and `INITIAL_SETUP_TOKEN` as private Vercel environment variables. Generate each locally with:
 
-## React Compiler
+   ```sh
+   node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+   ```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+   Run the command twice and use a different random value for each variable. Do not commit either value or put them in a `VITE_` variable.
+4. Deploy. On the first visit, enter the `INITIAL_SETUP_TOKEN` in the one-time administrator setup screen, then create the admin email and password. Remove `INITIAL_SETUP_TOKEN` from the Vercel project after setup and redeploy. The admin can create further staff accounts in **Settings → Register staff**.
 
-## Expanding the ESLint configuration
+The Vercel-hosted frontend and API use the same origin. Visitor records, staff accounts, and sign-in sessions persist in Neon, not in Vercel's temporary function filesystem. A Neon database is required; local SQLite files are not used by the deployed application.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+### Move existing local SQLite data
+
+If you have visitor records or staff accounts in `server/visitors.db`, first set the Neon `DATABASE_URL` in an uncommitted `.env.local` file (see `.env.example`), then run:
+
+```sh
+npm install
+npm run migrate-sqlite -- "C:\path\to\server\visitors.db"
+```
+
+The importer copies visitor records, follow-ups, and staff password hashes into Neon while keeping their IDs. It does not copy local session cookies. Do the migration before inviting staff to use the deployed app. Back up the SQLite file first.
+
+## Local development
+
+Copy `.env.example` to `.env.local`, add a Neon `DATABASE_URL`, then run:
+
+```sh
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173`. The Vite dev server proxies `/api` to Express on port `5000`; both use the same Neon database specified in `.env.local`. When there are no staff accounts, the app shows the one-time administrator setup form. For local setup, no token is required.
+
+## Useful commands
+
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Start the frontend and local Express API |
+| `npm run build` | Build the Vercel static frontend |
+| `npm start` | Run the Express server locally with production assets |
+| `npm run migrate-sqlite -- <file>` | Import an existing SQLite database into the configured Neon database |
+| `npm run lint` | Run ESLint |
