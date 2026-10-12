@@ -31,14 +31,14 @@
 }
 
 html {
-  min-width: 900px;
+  min-width: 320px;
   min-height: 100%;
   background: var(--beige);
 }
 
 body {
   margin: 0;
-  min-width: 900px;
+  min-width: 320px;
   min-height: 100vh;
 }
 

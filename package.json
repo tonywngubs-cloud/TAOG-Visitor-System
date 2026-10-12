@@ -4,10 +4,14 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "main": "electron/main.cjs",
+  "workspaces": [
+    "server"
+  ],
   "scripts": {
     "server": "node server/server.js",
-    "dev": "concurrently -k \"node server/server.js\" \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 tcp:127.0.0.1:5000 && electron .\"",
+    "dev": "concurrently -k \"npm run server\" \"vite --host 127.0.0.1\"",
+    "start": "node server/server.js",
+    "migrate-sqlite": "node server/migrate-sqlite.js",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"
@@ -22,12 +26,10 @@
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
     "concurrently": "^10.0.6",
-    "electron": "^44.7.0",
     "eslint": "^10.10.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.6",
     "globals": "^17.12.0",
-    "vite": "^8.3.0",
-    "wait-on": "^9.5.1"
+    "vite": "^8.3.0"
   }
 }
